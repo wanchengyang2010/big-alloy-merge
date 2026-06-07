@@ -117,8 +117,11 @@ def main():
 
     pygame.display.set_caption("合成大YK — Big Alloy Merge")
 
+    # 自适应初始窗口：确保不超过屏幕可用区域，避免小屏电脑顶部按钮被裁切
+    init_w, init_h = _get_safe_window_size()
+
     flags = pygame.RESIZABLE
-    screen = pygame.display.set_mode((INIT_WIDTH, INIT_HEIGHT), flags)
+    screen = pygame.display.set_mode((init_w, init_h), flags)
     fullscreen = False
 
     _update_scale(screen)
@@ -313,6 +316,14 @@ def _handle_action(action, screen, fullscreen, game, debug_mode):
     return fullscreen
 
 
+def _get_safe_window_size():
+    """返回不超过屏幕 90% 的安全初始窗口尺寸。"""
+    info = pygame.display.Info()
+    w = min(INIT_WIDTH, info.current_w - 80)
+    h = min(INIT_HEIGHT, info.current_h - 120)
+    return max(w, 500), max(h, 600)
+
+
 def _set_fullscreen(screen, fullscreen):
     """切换全屏并返回新 screen surface。"""
     if fullscreen:
@@ -322,8 +333,9 @@ def _set_fullscreen(screen, fullscreen):
             pygame.FULLSCREEN | pygame.SCALED,
         )
     else:
+        safe_w, safe_h = _get_safe_window_size()
         return pygame.display.set_mode(
-            (INIT_WIDTH, INIT_HEIGHT), pygame.RESIZABLE,
+            (safe_w, safe_h), pygame.RESIZABLE,
         )
 
 
