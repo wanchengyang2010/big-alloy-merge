@@ -9,13 +9,114 @@ from constants import (
     VERSION,
     DROP_LINE_Y,
     BG_COLOR, CONTAINER_BG, CONTAINER_BORDER, DANGER_LINE_COLOR,
-    TEXT_COLOR, SCORE_COLOR, PREVIEW_ALPHA, OVERLAY_COLOR,
+    TEXT_COLOR, SCORE_COLOR, TEXT_CYAN, PREVIEW_ALPHA, OVERLAY_COLOR,
     BUTTON_BAR_H, BUTTONS,
     s, si, get_scale, resource_path,
 )
 from data import TIERS, get_max_drop
+from modes import mode_manager
 
 ASSETS_DIR = resource_path("assets/images")
+
+
+# ── 程序化图标生成（v2.2.0.0）──────────────────────────────
+
+def _generate_sound_icon(enabled: bool, size: int) -> pygame.Surface:
+    """生成声音开/关图标。enabled=True → 青色喇叭+声波，False → 金色喇叭+X。"""
+    surf = pygame.Surface((size, size), pygame.SRCALPHA)
+    c = size
+    m = c // 2
+    s = c / 128.0  # scale factor from 128 reference
+
+    if enabled:
+        color = (104, 246, 248, 255)  # 青 #68f6f8
+        # 喇叭箱体
+        box_x = int(18 * s)
+        box_y = int(44 * s)
+        box_w = int(22 * s)
+        box_h = int(40 * s)
+        pygame.draw.rect(surf, color, (box_x, box_y, box_w, box_h), border_radius=int(4 * s))
+        # 喇叭锥形 (三角形)
+        cone_pts = [
+            (int(40 * s), int(28 * s)),
+            (int(40 * s), int(100 * s)),
+            (int(74 * s), int(64 * s)),
+        ]
+        pygame.draw.polygon(surf, color, cone_pts)
+        # 声波弧线
+        arc_cx = int(74 * s)
+        arc_cy = int(64 * s)
+        for i in range(2):
+            r = int((18 + i * 14) * s)
+            pygame.draw.arc(surf, color,
+                            (arc_cx - r, arc_cy - r, r * 2, r * 2),
+                            4.2, 5.1, width=max(1, int(3 * s)))
+    else:
+        color = (242, 175, 76, 255)  # 金 #f2af4c
+        # 喇叭箱体
+        box_x = int(20 * s)
+        box_y = int(42 * s)
+        box_w = int(22 * s)
+        box_h = int(42 * s)
+        pygame.draw.rect(surf, color, (box_x, box_y, box_w, box_h), border_radius=int(4 * s))
+        # 喇叭锥形
+        cone_pts = [
+            (int(42 * s), int(26 * s)),
+            (int(42 * s), int(100 * s)),
+            (int(78 * s), int(63 * s)),
+        ]
+        pygame.draw.polygon(surf, color, cone_pts)
+        # X 标记
+        x_color = (255, 80, 80, 220)
+        x_margin = int(10 * s)
+        x_lw = max(1, int(5 * s))
+        pygame.draw.line(surf, x_color,
+                         (x_margin, x_margin),
+                         (c - x_margin, c - x_margin), x_lw)
+        pygame.draw.line(surf, x_color,
+                         (c - x_margin, x_margin),
+                         (x_margin, c - x_margin), x_lw)
+    return surf
+
+
+def _generate_settings_icon(size: int) -> pygame.Surface:
+    """生成设置齿轮图标。紫色 #cd8cf6。"""
+    import math
+    surf = pygame.Surface((size, size), pygame.SRCALPHA)
+    c = size
+    m = c // 2
+    s = c / 128.0
+    color = (205, 140, 246, 255)  # 紫 #cd8cf6
+
+    # 齿轮外圈
+    outer_r = int(52 * s)
+    inner_r = int(26 * s)
+    teeth = 8
+    tooth_h = int(12 * s)
+    tooth_w = int(10 * s)
+
+    # 画齿轮齿
+    for i in range(teeth):
+        angle = 2 * math.pi * i / teeth
+        cx = int(m + (outer_r - tooth_h // 2) * math.cos(angle))
+        cy = int(m + (outer_r - tooth_h // 2) * math.sin(angle))
+        # 旋转的小矩形作为齿
+        tooth_surf = pygame.Surface((tooth_w, tooth_h), pygame.SRCALPHA)
+        tooth_surf.fill(color)
+        rotated = pygame.transform.rotate(tooth_surf, -math.degrees(angle))
+        surf.blit(rotated, (cx - rotated.get_width() // 2,
+                            cy - rotated.get_height() // 2))
+
+    # 齿轮主体圆
+    pygame.draw.circle(surf, color, (m, m), int(outer_r), width=max(1, int(6 * s)))
+    # 内圆（镂空）
+    pygame.draw.circle(surf, (0, 0, 0, 0), (m, m), int(inner_r))
+    pygame.draw.circle(surf, color, (m, m), int(inner_r), width=max(1, int(3 * s)))
+    # 中心小圆
+    center_r = int(8 * s)
+    pygame.draw.circle(surf, color, (m, m), center_r)
+
+    return surf
 
 
 class Renderer:
@@ -24,60 +125,188 @@ class Renderer:
         self.clock = pygame.time.Clock()
         self.images: dict[int, pygame.Surface | None] = {}
         self._font_path = None
+        self._icon_cache: dict[str, pygame.Surface | None] = {}  # v2.2.0: 图标缓存
         self._init_font()
-        self._load_images()
+        # v2.2.0.1: 图片延迟加载——闪屏优先显示
 
     # ---- Font ----
 
     def _init_font(self):
-        # Bundled font (for PyInstaller) + system fallbacks
-        candidates = [
+        """Load CJK + Emoji fonts for mixed rendering."""
+        # CJK candidates
+        cjk_candidates = [
             resource_path("msyh.ttc"),
             resource_path("simhei.ttf"),
             "C:/Windows/Fonts/msyh.ttc",
             "C:/Windows/Fonts/simhei.ttf",
             "C:/Windows/Fonts/simsun.ttc",
         ]
-        for path in candidates:
+        self._font_path = None
+        for path in cjk_candidates:
             if os.path.isfile(path):
                 try:
                     pygame.font.Font(path, 20)
                     self._font_path = path
-                    return
+                    break
                 except Exception:
                     continue
-        self._font_path = None
 
-    def _font(self, size: int) -> pygame.font.Font:
-        if self._font_path:
-            return pygame.font.Font(self._font_path, size)
-        return pygame.font.Font(None, size)
+        # Emoji candidates
+        emoji_candidates = [
+            resource_path("emoji.ttf"),
+            "C:/Windows/Fonts/seguiemj.ttf",
+        ]
+        self._emoji_font_path = None
+        for path in emoji_candidates:
+            if os.path.isfile(path):
+                try:
+                    pygame.font.Font(path, 20)
+                    self._emoji_font_path = path
+                    break
+                except Exception:
+                    continue
+
+    @staticmethod
+    def _has_emoji(text: str) -> bool:
+        """Check if text contains emoji-range characters."""
+        for ch in text:
+            cp = ord(ch)
+            if cp >= 0x1F000 or (0x2600 <= cp <= 0x27BF) or cp == 0xFE0F:
+                return True
+        return False
+
+    def _font(self, size: int):
+        """Return a font-like object with .render() that handles CJK+emoji.
+        Transparent emoji support — zero changes needed at call sites.
+        """
+        cjk = pygame.font.Font(self._font_path, size) if self._font_path \
+              else pygame.font.Font(None, size)
+
+        emoji_path = self._emoji_font_path
+
+        class _MixedFont:
+            def render(_self, text, aa, color):
+                if not emoji_path or not Renderer._has_emoji(text):
+                    return cjk.render(text, aa, color)
+                emoji = pygame.font.Font(emoji_path, size)
+                # Split into CJK/emoji segments
+                segments = []  # [(text, is_emoji)]
+                buf = ""
+                buf_emoji = None
+                for ch in text:
+                    ch_emoji = Renderer._has_emoji(ch)
+                    if buf and ch_emoji != buf_emoji:
+                        segments.append((buf, buf_emoji))
+                        buf = ""
+                    buf += ch
+                    buf_emoji = ch_emoji
+                if buf:
+                    segments.append((buf, buf_emoji))
+                surfs = []
+                for seg_text, is_emoji in segments:
+                    font = emoji if is_emoji else cjk
+                    s = font.render(seg_text, aa, color)
+                    if s.get_width() > 0:
+                        surfs.append(s)
+                if not surfs:
+                    return cjk.render(text, aa, color)
+                total_w = sum(s.get_width() for s in surfs)
+                max_h = max(s.get_height() for s in surfs)
+                result = pygame.Surface((total_w, max_h), pygame.SRCALPHA)
+                x = 0
+                for s in surfs:
+                    result.blit(s, (x, 0))
+                    x += s.get_width()
+                return result
+
+        return _MixedFont()
 
     # ---- Image loading ----
 
     def _load_images(self):
         self.images.clear()
         os.makedirs(ASSETS_DIR, exist_ok=True)
+        cwd = os.getcwd()
         for tier in range(len(TIERS)):
             filename = TIERS[tier].get("image", "")
-            path = os.path.join(ASSETS_DIR, filename)
             img = None
-            if filename and os.path.isfile(path):
-                try:
-                    raw = pygame.image.load(path).convert_alpha()
-                    img = raw  # store original; scale at draw time
-                except Exception:
-                    img = None
+            if filename:
+                # 优先从 CWD 加载（Q自我模式用户自定义图片 / exe 同目录覆盖）
+                cwd_path = os.path.join(cwd, filename)
+                bundled_path = os.path.join(ASSETS_DIR, filename)
+                for path in (cwd_path, bundled_path):
+                    if os.path.isfile(path):
+                        try:
+                            raw = pygame.image.load(path).convert_alpha()
+                            img = raw
+                            break
+                        except Exception:
+                            continue
             self.images[tier] = img
 
     def reload_images(self):
         """Call after window resize if images need re-scaling."""
         self._load_images()
 
+    def _get_icon(self, filename: str, size: int) -> pygame.Surface | None:
+        """加载并缓存图标 PNG，缩放到指定尺寸。"""
+        if filename in self._icon_cache:
+            cached = self._icon_cache[filename]
+            if cached is not None:
+                return cached
+            return None  # 之前尝试加载失败
+        cwd = os.getcwd()
+        paths = [
+            os.path.join(cwd, filename),
+            os.path.join(cwd, "pictures", filename),
+            resource_path(f"assets/{filename}"),
+            resource_path(filename),
+        ]
+        for p in paths:
+            if os.path.isfile(p):
+                try:
+                    raw = pygame.image.load(p).convert_alpha()
+                    scaled = pygame.transform.smoothscale(raw, (size, size))
+                    self._icon_cache[filename] = scaled
+                    return scaled
+                except Exception:
+                    continue
+        self._icon_cache[filename] = None  # 标记已尝试
+        return None
+
+    def _get_or_generate_icon(self, key: str, size: int) -> pygame.Surface:
+        """获取图标：先尝试 PNG，失败则程序化生成。"""
+        cache_key = f"!gen_{key}"
+        if cache_key in self._icon_cache:
+            cached = self._icon_cache[cache_key]
+            if cached is not None:
+                return pygame.transform.smoothscale(cached, (size, size))
+        # 尝试找 PNG
+        png = self._get_icon(key, size)
+        if png is not None:
+            self._icon_cache[cache_key] = png
+            return png
+        # 程序化生成
+        gen_size = 128
+        surf = None
+        if key == "声音开.png":
+            surf = _generate_sound_icon(True, gen_size)
+        elif key == "声音关.png":
+            surf = _generate_sound_icon(False, gen_size)
+        elif key == "设置面板.png":
+            surf = _generate_settings_icon(gen_size)
+        if surf is not None:
+            self._icon_cache[cache_key] = surf
+            return pygame.transform.smoothscale(surf, (size, size))
+        # 最终兜底
+        fallback = pygame.Surface((size, size), pygame.SRCALPHA)
+        fallback.fill((80, 80, 100))
+        return fallback
+
     # ---- Mode Selection ----
 
-    def draw_mode_selection(self):
-        """Render the mode selection screen."""
+    def draw_mode_selection(self, has_save: bool = False):
+        """Render the mode selection screen. has_save: show restore card."""
         self.screen.fill(BG_COLOR)
 
         w, h = self.screen.get_size()
@@ -90,17 +319,42 @@ class Renderer:
         title = title_font.render("选择模式", True, SCORE_COLOR)
         self.screen.blit(title, ((w - title.get_width()) // 2, si(150)))
 
+        # 如果有存档，标题上面显示提示
+        save_offset = 0
+        card_w = si(400)
+        card_h = si(80)
+        gap = si(20)
+
+        if has_save:
+            save_offset = 1
+            # 恢复存档卡片（顶部，金色高亮）
+            cy = si(300)
+            cx = (w - card_w) // 2
+            r_color = (255, 180, 50)
+            r_card = pygame.Surface((card_w, card_h), pygame.SRCALPHA)
+            r_card.fill((*r_color, 60))
+            pygame.draw.rect(r_card, (*r_color, 220), r_card.get_rect(),
+                             width=si(3), border_radius=si(8))
+            self.screen.blit(r_card, (cx, cy))
+            # 图标
+            save_icon = card_font.render("💾", True, (255, 255, 255))
+            self.screen.blit(save_icon, (cx + si(16), cy + si(12)))
+            # 名称
+            r_name = card_font.render("恢复游戏", True, r_color)
+            self.screen.blit(r_name, (cx + si(60), cy + si(10)))
+            # 描述
+            r_desc = desc_font.render("检测到未完成的游戏 · 按 [r] 或点击恢复", True, (*r_color, 200))
+            self.screen.blit(r_desc, (cx + si(60), cy + si(44)))
+
         modes = [
             ("a", "2222 模式", "17 元素完整版 · 待开发", (100, 100, 100)),
             ("b", "大西瓜模式", "11 元素经典版 · 纯碰撞合成", (60, 200, 100)),
             ("c", "调试模式", "需要密码才能进入", (200, 140, 60)),
             ("d", "演示模式", "AI 自动游玩 · 观看通关过程", (180, 120, 220)),
+            ("q", "Q自我模式", "自定义球图/名称/合成提示词 · 持久化", (100, 200, 220)),
         ]
 
-        card_w = si(400)
-        card_h = si(80)
-        start_y = si(300)
-        gap = si(20)
+        start_y = si(300) + save_offset * (card_h + gap)
 
         for i, (key, name, desc, color) in enumerate(modes):
             cy = start_y + i * (card_h + gap)
@@ -133,14 +387,212 @@ class Renderer:
             # Lock indicator
             if locked:
                 lock_font = self._font(si(18))
-                lock_text = lock_font.render("🔒", True, (120, 120, 120))
+                lock_text = lock_font.render("\U0001f512", True, (120, 120, 120))
                 self.screen.blit(lock_text, (cx + card_w - si(40), cy + si(20)))
 
         # Footer
-        footer = desc_font.render("点击卡片选择模式 · 亦可按键盘 b / c · 按 d 观看演示", True, (140, 140, 160))
+        if has_save:
+            footer_text = "点击卡片选择模式 · 键盘 b / c / d / q · 按 r 恢复存档"
+        else:
+            footer_text = "点击卡片选择模式 · 键盘 b / c / d / q 快速选择"
+        footer = desc_font.render(footer_text, True, TEXT_CYAN)
         self.screen.blit(footer, ((w - footer.get_width()) // 2, h - si(60)))
 
         pygame.display.flip()
+
+    # ── v2.0.0.0 新模式选择 ──
+
+    def draw_mode_selection_v2(self, modes, has_save: bool = False,
+                                drag_idx: int | None = None, drag_y: float = 0.0,
+                                saved_ids: set | None = None):
+        """v2.1.0.0 模式选择界面：动态卡片 + 存档指示 + 拖拽排序 + 齿轮按钮。
+
+        modes: list[ModeDefinition] 已按 order 排序。
+        saved_ids: set of mode_id that have save files.
+        """
+        if saved_ids is None:
+            saved_ids = set()
+        self.screen.fill(BG_COLOR)
+        w, h = self.screen.get_size()
+
+        title_font = self._font(si(36))
+        card_font = self._font(si(19))
+        desc_font = self._font(si(13))
+        num_font = self._font(si(22))
+        small_font = self._font(si(12))
+
+        # ── 齿轮按钮（右上角）──
+        gear_x = w - si(50)
+        gear_y = si(20)
+        gear_sz = si(36)
+        gear_btn = pygame.Surface((gear_sz, gear_sz), pygame.SRCALPHA)
+        gear_btn.fill((60, 60, 80, 120))
+        pygame.draw.rect(gear_btn, (140, 140, 170, 200),
+                         gear_btn.get_rect(), width=si(2), border_radius=si(6))
+        self.screen.blit(gear_btn, (gear_x - gear_sz // 2, gear_y - gear_sz // 2))
+        # v2.0.3.0: 使用 settings.png 图标，回退到 ⚙ 文字
+        icon_sz = int(gear_sz * 0.7)
+        settings_icon = self._get_icon("settings.png", icon_sz)
+        if settings_icon:
+            self.screen.blit(settings_icon,
+                             (gear_x - icon_sz // 2, gear_y - icon_sz // 2))
+        else:
+            gear_text = title_font.render("⚙", True, TEXT_COLOR)
+            self.screen.blit(gear_text, (gear_x - gear_text.get_width() // 2,
+                                          gear_y - gear_text.get_height() // 2))
+        # 标签
+        gear_label = small_font.render("设置", True, (180, 180, 200))
+        self.screen.blit(gear_label, (gear_x - gear_label.get_width() // 2,
+                                       gear_y + gear_sz // 2 + si(2)))
+
+        # ── v2.2.0.0: 声音按钮（齿轮左侧）──
+        import game as game_module
+        sound_x = gear_x - si(50)
+        sound_y = gear_y
+        sound_sz = gear_sz
+        sound_btn = pygame.Surface((sound_sz, sound_sz), pygame.SRCALPHA)
+        sound_btn.fill((60, 60, 80, 120))
+        pygame.draw.rect(sound_btn, (140, 140, 170, 200),
+                         sound_btn.get_rect(), width=si(2), border_radius=si(6))
+        self.screen.blit(sound_btn, (sound_x - sound_sz // 2, sound_y - sound_sz // 2))
+        sound_icon_sz = int(sound_sz * 0.7)
+        sound_icon_key = "声音开.png" if game_module._sound_enabled else "声音关.png"
+        sound_icon = self._get_or_generate_icon(sound_icon_key, sound_icon_sz)
+        if sound_icon:
+            self.screen.blit(sound_icon,
+                             (sound_x - sound_icon_sz // 2, sound_y - sound_icon_sz // 2))
+        sound_label = small_font.render("声音", True, (180, 180, 200))
+        self.screen.blit(sound_label, (sound_x - sound_label.get_width() // 2,
+                                        sound_y + sound_sz // 2 + si(2)))
+
+        # ── 标题 ──
+        title = title_font.render("选择模式", True, SCORE_COLOR)
+        self.screen.blit(title, ((w - title.get_width()) // 2, si(150)))
+
+        card_w = si(420)
+        card_h = si(76)
+        gap = si(14)
+        cx = (w - card_w) // 2
+
+        save_offset = 1 if has_save else 0
+        start_y = si(280) + save_offset * (card_h + gap)
+
+        # ── 恢复存档卡片 ──
+        if has_save:
+            ry = si(280)
+            r_color = (255, 180, 50)
+            r_card = pygame.Surface((card_w, card_h), pygame.SRCALPHA)
+            r_card.fill((*r_color, 60))
+            pygame.draw.rect(r_card, (*r_color, 220), r_card.get_rect(),
+                             width=si(3), border_radius=si(8))
+            self.screen.blit(r_card, (cx, ry))
+            save_icon = card_font.render("💾", True, (255, 255, 255))
+            self.screen.blit(save_icon, (cx + si(16), ry + si(12)))
+            r_name = card_font.render("恢复游戏", True, r_color)
+            self.screen.blit(r_name, (cx + si(60), ry + si(10)))
+            r_desc = desc_font.render("检测到未完成的游戏 · 按 [r] 或点击恢复",
+                                      True, (*r_color, 200))
+            self.screen.blit(r_desc, (cx + si(60), ry + si(44)))
+
+        # ── 模式卡片 ──
+        for i, md in enumerate(modes):
+            cy = start_y + i * (card_h + gap)
+
+            # 拖拽中的卡片：绘制在拖拽位置
+            draw_cy = drag_y if (drag_idx is not None and i == drag_idx) else cy
+
+            # 跳过被拖拽卡片原位置（视觉上已移走）
+            if drag_idx is not None and i == drag_idx:
+                # 在原位画一个虚线占位
+                placeholder = pygame.Surface((card_w, card_h), pygame.SRCALPHA)
+                placeholder.fill((80, 80, 100, 30))
+                pygame.draw.rect(placeholder, (120, 120, 150, 80),
+                                 placeholder.get_rect(), width=si(1),
+                                 border_radius=si(8))
+                self.screen.blit(placeholder, (cx, cy))
+                # 然后在拖拽位置画卡片
+                cy = int(drag_y)
+
+            locked = md.locked
+            is_demo = (md.id == "demo")
+            is_active = (md.id == mode_manager.active_id)
+
+            # 卡片背景色
+            if locked:
+                card_color = (100, 100, 100)
+                card_alpha = 20
+                border_alpha = 100
+            elif is_demo:
+                card_color = (180, 120, 220)
+                card_alpha = 35
+                border_alpha = 160
+            elif md.builtin:
+                card_color = (60, 200, 100) if md.id == "lite" else (100, 200, 220)
+                card_alpha = 30
+                border_alpha = 180
+            else:
+                card_color = (180, 160, 100)
+                card_alpha = 35
+                border_alpha = 180
+
+            if is_active:
+                border_alpha = 255
+                card_alpha = 55
+
+            card = pygame.Surface((card_w, card_h), pygame.SRCALPHA)
+            card.fill((*card_color, card_alpha))
+            bw = si(3) if is_active else si(2)
+            pygame.draw.rect(card, (*card_color, border_alpha),
+                             card.get_rect(), width=bw, border_radius=si(8))
+            self.screen.blit(card, (cx, cy))
+
+            # 编号
+            num_color = (120, 120, 120) if locked else (255, 255, 255)
+            num_text = num_font.render(str(i), True, num_color)
+            self.screen.blit(num_text, (cx + si(16), cy + (card_h - num_text.get_height()) // 2))
+
+            # 模式名称 + 锁定图标 + 存档指示
+            name_color = (140, 140, 140) if locked else TEXT_COLOR
+            name_str = f"🔒 {md.name}" if locked else md.name
+            if md.id in saved_ids:
+                name_str = f"💾 {name_str}"
+            name_text = card_font.render(name_str, True, name_color)
+            self.screen.blit(name_text, (cx + si(52), cy + si(8)))
+
+            # 描述行
+            n_tiers = md.n_tiers
+            phys = f"g={md.gravity:.0f} μ={md.friction_ball:.2f}" if not locked else "待开发"
+            desc_str = f"{n_tiers}元素 · {phys}"
+            desc_text = desc_font.render(desc_str, True, (*card_color, 180))
+            self.screen.blit(desc_text, (cx + si(52), cy + si(44)))
+
+            # 拖拽手柄提示（右侧 ≡ 符号）
+            if not locked:
+                handle = desc_font.render("≡", True, (160, 160, 180))
+                self.screen.blit(handle, (cx + card_w - si(36), cy + (card_h - handle.get_height()) // 2))
+
+        # ── 新建模式按钮 ──
+        new_y = start_y + len(modes) * (card_h + gap) + gap
+        new_w = si(180)
+        new_h = si(36)
+        new_x = (w - new_w) // 2
+        new_btn = pygame.Surface((new_w, new_h), pygame.SRCALPHA)
+        new_btn.fill((60, 60, 80, 100))
+        pygame.draw.rect(new_btn, (120, 120, 150, 200),
+                         new_btn.get_rect(), width=si(1), border_radius=si(6))
+        self.screen.blit(new_btn, (new_x, new_y))
+        new_text = desc_font.render("+ 新建模式", True, (200, 200, 220))
+        self.screen.blit(new_text, (new_x + (new_w - new_text.get_width()) // 2,
+                                     new_y + (new_h - new_text.get_height()) // 2))
+
+        # ── 底部提示 ──
+        footer_text = "点击卡片选择模式 · 拖拽 ≡ 排序 · 数字键快捷选择 · 右上⚙设置"
+        footer = small_font.render(footer_text, True, TEXT_CYAN)
+        self.screen.blit(footer, ((w - footer.get_width()) // 2, h - si(50)))
+
+        pygame.display.flip()
+
+    # ── 密码对话框 ──
 
     def draw_password_dialog(self, password: str, error: bool = False):
         """Render password input dialog over the mode selection screen."""
@@ -186,75 +638,165 @@ class Renderer:
 
     # ---- 启动闪屏 ----
 
-    # yk.png background (loaded once, cached)
+    # flash.jfif background (loaded once, cached) — v2.2.0.1
     _splash_bg = None
 
-    def draw_splash(self):
-        """启动闪屏：yk.png 背景 + 名称 + 版本 + 发布者。"""
+    def _load_splash_bg(self):
+        """加载闪屏背景图（newflash.jfif）。"""
+        w, h = self.screen.get_size()
+        paths = [
+            os.path.join(os.getcwd(), "pictures", "newflash.jfif"),
+            resource_path("pictures/newflash.jfif"),
+            resource_path("assets/yk.png"),
+        ]
+        for p in paths:
+            if os.path.isfile(p):
+                try:
+                    raw = pygame.image.load(p)
+                    try:
+                        raw = raw.convert()
+                    except Exception:
+                        pass  # dummy display fallback
+                    iw, ih = raw.get_size()
+                    scale = max(w / iw, h / ih)  # 覆盖全屏
+                    nw, nh = int(iw * scale), int(ih * scale)
+                    Renderer._splash_bg = pygame.transform.smoothscale(raw, (nw, nh))
+                    return
+                except Exception:
+                    continue
+        Renderer._splash_bg = False
+
+    def draw_splash(self, state: str = "ready"):
+        """v2.2.0.1: flash.jfif 全屏闪屏 + 加载提示。
+        state: "loading" = 加载中  |  "ready" = 点击开始
+        """
         w, h = self.screen.get_size()
 
         # 加载背景图（缓存）
         if Renderer._splash_bg is None:
-            yk_path = resource_path("assets/yk.png")
-            try:
-                raw = pygame.image.load(yk_path).convert_alpha()
-                # 缩放至窗口大小（保持比例，留黑边）
-                iw, ih = raw.get_size()
-                scale = min(w / iw, h / ih)
-                nw, nh = int(iw * scale), int(ih * scale)
-                Renderer._splash_bg = pygame.transform.smoothscale(raw, (nw, nh))
-            except Exception:
-                Renderer._splash_bg = False  # 标记加载失败
+            self._load_splash_bg()
 
-        # 黑色背景
-        self.screen.fill((0, 0, 0))
+        # 深色填充
+        self.screen.fill((8, 8, 18))
 
-        # 背景图居中
+        # 背景图居中填满
         if Renderer._splash_bg and Renderer._splash_bg is not False:
             bg = Renderer._splash_bg
             bw, bh = bg.get_size()
             self.screen.blit(bg, ((w - bw) // 2, (h - bh) // 2))
 
-        # 半透明遮罩（底部 55%）
-        overlay = pygame.Surface((w, int(h * 0.55)), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, 130))
-        self.screen.blit(overlay, (0, int(h * 0.45)))
+        # 半透明遮罩（底部 45%）
+        overlay = pygame.Surface((w, int(h * 0.45)), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, 140))
+        self.screen.blit(overlay, (0, int(h * 0.55)))
 
         # ---- 文字叠加 ----
         cx = w // 2
-        title_y = int(h * 0.50)
+        title_y = int(h * 0.60)
 
         # 应用名
-        title_font = self._font(si(38))
-        title = title_font.render("合成大YK", True, (255, 215, 90))
+        title_font = self._font(si(40))
+        title = title_font.render("合成大YK", True, SCORE_COLOR)
         self.screen.blit(title, (cx - title.get_width() // 2, title_y))
 
         # 英文副标题
-        sub_font = self._font(si(14))
-        sub = sub_font.render("Big Alloy Merge", True, (200, 200, 220))
-        self.screen.blit(sub, (cx - sub.get_width() // 2, title_y + si(44)))
+        sub_font = self._font(si(15))
+        sub = sub_font.render("Big Alloy Merge", True, TEXT_COLOR)
+        self.screen.blit(sub, (cx - sub.get_width() // 2, title_y + si(46)))
 
         # 版本号
         ver_font = self._font(si(18))
-        ver = ver_font.render(f"v{VERSION[1:]}", True, (255, 255, 255))
+        ver = ver_font.render(VERSION, True, TEXT_CYAN)
         self.screen.blit(ver, (cx - ver.get_width() // 2, title_y + si(72)))
 
         # 发布者
         pub_font = self._font(si(16))
-        pub = pub_font.render("Trash Panda Q Opal", True, (180, 180, 200))
-        self.screen.blit(pub, (cx - pub.get_width() // 2, title_y + si(100)))
+        pub = pub_font.render("Trash Panda Q Opal", True, (170, 170, 200))
+        self.screen.blit(pub, (cx - pub.get_width() // 2, title_y + si(98)))
 
-        # 提示文字（闪烁）
-        hint_font = self._font(si(15))
-        hint = hint_font.render("点击任意位置开始游戏", True, (255, 255, 255, 180))
-        self.screen.blit(hint, (cx - hint.get_width() // 2, int(h * 0.86)))
+        # 底部提示文字
+        hint_font = self._font(si(16))
+        if state == "loading":
+            hint_text = "加载中…"
+            hint_color = SCORE_COLOR
+        else:
+            hint_text = "点击任意位置开始游戏"
+            hint_color = TEXT_COLOR
+        hint = hint_font.render(hint_text, True, hint_color)
+        self.screen.blit(hint, (cx - hint.get_width() // 2, int(h * 0.88)))
 
         pygame.display.flip()
 
+    # ---- 合成终极球庆祝特效 ----
+
+    _theme_bg = None  # theme.png 缓存
+
+    def _draw_celebration(self, game):
+        """合成终极球全屏庆祝：theme.png + 滚动文字。不阻塞游戏。"""
+        w, h = self.screen.get_size()
+        remaining = game.celebration_until
+        alpha = int(min(255, remaining / 10.0 * 255))  # 最后渐隐
+
+        # 加载 theme.png（缓存）
+        if Renderer._theme_bg is None:
+            theme_path = resource_path("assets/theme.png")
+            # 也检查 CWD（用户可能放在 exe 同目录）
+            cwd_path = os.path.join(os.getcwd(), "theme.png")
+            for path in (cwd_path, theme_path):
+                if os.path.isfile(path):
+                    try:
+                        raw = pygame.image.load(path).convert_alpha()
+                        scale = min(w / raw.get_width(), h / raw.get_height())
+                        nw, nh = int(raw.get_width() * scale), int(raw.get_height() * scale)
+                        Renderer._theme_bg = pygame.transform.smoothscale(raw, (nw, nh))
+                        break
+                    except Exception:
+                        continue
+            if Renderer._theme_bg is None:
+                Renderer._theme_bg = False
+
+        if Renderer._theme_bg and Renderer._theme_bg is not False:
+            bg = Renderer._theme_bg
+            bg_copy = bg.copy()
+            bg_copy.set_alpha(min(220, alpha))
+            bw, bh = bg_copy.get_size()
+            self.screen.blit(bg_copy, ((w - bw) // 2, (h - bh) // 2))
+
+        # 半透明深色遮罩
+        overlay = pygame.Surface((w, h), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, min(140, 255 - alpha)))
+        self.screen.blit(overlay, (0, 0))
+
+        # 滚动文字（往返移动）
+        t = time.time()
+        cx = w // 2
+
+        # 第一行：你合成了大YK!（金色大号，水平摆动）
+        big_font = self._font(si(48))
+        line1 = big_font.render("你合成了大YK!", True, (255, 215, 50))
+        # 左右摆动幅度
+        sway1 = int(si(60) * (t * 1.3 % 2.0 - 1.0))  # ±60px 慢速摆动
+        l1y = int(h * 0.30)
+        self.screen.blit(line1, (cx - line1.get_width() // 2 + sway1, l1y))
+
+        # 第二行：打倒YK反动统治!!!（红色大号，反向摆动）
+        mid_font = self._font(si(36))
+        line2 = mid_font.render("打倒YK反动统治!!!", True, (255, 60, 40))
+        sway2 = int(si(60) * -(t * 1.3 % 2.0 - 1.0))  # 反方向摆动
+        l2y = int(h * 0.42)
+        self.screen.blit(line2, (cx - line2.get_width() // 2 + sway2, l2y))
+
+        # 倒计时提示
+        small_font = self._font(si(14))
+        countdown = small_font.render(f"庆祝中… {remaining:.0f}s · 游戏可继续操作", True, (200, 200, 200))
+        self.screen.blit(countdown, (cx - countdown.get_width() // 2, int(h * 0.88)))
+
     # ---- Frame ----
 
-    def draw(self, game, debug_mode=False, demo_bot=None, drag_x=None):
+    def draw(self, game, debug_mode=False, demo_bot=None, drag_x=None,
+             debug_panel=None):
         self.screen.fill(BG_COLOR)
+        self._draw_background(game)
         self._draw_button_bar(game)
         self._draw_container()
         self._draw_danger_line()
@@ -268,13 +810,81 @@ class Renderer:
             self._draw_demo_preview(game, demo_bot)
         self._draw_ui(game)
         if debug_mode:
-            self._draw_debug(game)
+            # v2.0.4.0: 完整调试模式使用独立面板 + 始终显示等级选择器
+            if getattr(game, '_full_debug', False):
+                bar_bottom = self._draw_tier_selector(game)
+                self._draw_weight_editor(game, bar_bottom)
+            else:
+                self._draw_debug(game)
         if game.game_over:
             self._draw_game_over(game)
+
+        # v2.2.0.0: 声音开关按钮（始终显示，替换旧音乐按钮）
+        self._draw_sound_button(game)
+
+        # 合成终极球庆祝特效
+        if game.celebration_until > 0.0:
+            self._draw_celebration(game)
+
+        # v2.0.4.0: 完整调试面板（在 flip 之前渲染，确保显示）
+        if debug_panel is not None and debug_panel.visible:
+            debug_panel.render(self.screen, self)
+
         pygame.display.flip()
-        self.clock.tick(60)
 
     # ---- Sections ----
+
+    # 背景图缓存（按文件名）
+    _bg_cache: dict[str, pygame.Surface | None] = {}
+
+    def _draw_background(self, game):
+        """v2.0.0.0: 渲染模式背景图 + 上方暗色渐变遮罩。"""
+        bg_file = getattr(game.mode_def, 'background_image', '')
+        if not bg_file:
+            return
+        w, h = self.screen.get_size()
+
+        # 加载缓存
+        cache_key = bg_file
+        if cache_key not in Renderer._bg_cache:
+            cwd = os.getcwd()
+            paths = [
+                os.path.join(cwd, bg_file),
+                resource_path(f"assets/{bg_file}"),
+                resource_path(bg_file),
+            ]
+            loaded = None
+            for p in paths:
+                if os.path.isfile(p):
+                    try:
+                        raw = pygame.image.load(p).convert()
+                        scale = max(w / raw.get_width(), h / raw.get_height())
+                        nw, nh = int(raw.get_width() * scale), int(raw.get_height() * scale)
+                        loaded = pygame.transform.smoothscale(raw, (nw, nh))
+                        break
+                    except Exception:
+                        continue
+            Renderer._bg_cache[cache_key] = loaded
+
+        bg = Renderer._bg_cache.get(cache_key)
+        if bg is None:
+            return
+
+        bw, bh = bg.get_size()
+        # 居中绘制
+        self.screen.blit(bg, ((w - bw) // 2, (h - bh) // 2))
+
+        # 上方暗色渐变遮罩（确保 UI 可读）
+        overlay_alpha = getattr(game.mode_def, 'background_overlay_alpha', 140)
+        if overlay_alpha > 0:
+            overlay_h = int(h * 0.45)
+            if overlay_h > 0:
+                overlay = pygame.Surface((w, overlay_h), pygame.SRCALPHA)
+                for i in range(overlay_h):
+                    alpha = int(overlay_alpha * (1.0 - i / overlay_h))
+                    if alpha > 0:
+                        pygame.draw.line(overlay, (0, 0, 0, alpha), (0, i), (w, i))
+                self.screen.blit(overlay, (0, 0))
 
     def _draw_container(self):
         left = si(_c.CONTAINER_LEFT)
@@ -325,10 +935,17 @@ class Renderer:
         except Exception:
             scaled = pygame.transform.scale(img, (d, d))
 
-        # Circular clip mask
-        mask = pygame.Surface((d, d), pygame.SRCALPHA)
+        # 旋转（v2.0.0.0）：球可绕中心旋转
+        if item.angular_velocity != 0.0 or item.angle != 0.0:
+            import math as _math
+            angle_deg = -_math.degrees(item.angle)  # 负号：pygame 顺时针
+            scaled = pygame.transform.rotate(scaled, angle_deg)
+
+        # 旋转后尺寸可能变大，取新尺寸居中绘制圆形遮罩
+        new_d = scaled.get_width()
+        mask = pygame.Surface((new_d, new_d), pygame.SRCALPHA)
         mask.fill((0, 0, 0, 0))
-        pygame.draw.circle(mask, (255, 255, 255, 255), (r, r), r)
+        pygame.draw.circle(mask, (255, 255, 255, 255), (new_d // 2, new_d // 2), r)
 
         result = scaled.copy()
         result.blit(mask, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
@@ -337,7 +954,7 @@ class Renderer:
         bw = max(1, si(2))
         pygame.draw.circle(self.screen, CONTAINER_BORDER, (cx, cy), r, width=bw)
 
-        self.screen.blit(result, (cx - r, cy - r))
+        self.screen.blit(result, (cx - new_d // 2, cy - new_d // 2))
 
         # Tier number badge (bottom-center of ball)
         num_fs = max(8, int(r * 0.45))
@@ -468,6 +1085,30 @@ class Renderer:
             self.screen.blit(num_bg, (x - num_bg.get_width() // 2,
                                        y + r - num_bg.get_height() - si(2)))
 
+        # v2.3.0.0: 掉落球信息显示在预览球上方
+        name_text = f"{tier} {TIERS[tier]['name']}"
+        name_fs = max(8, si(14))
+        name_font = self._font(name_fs)
+        name_surf = name_font.render(name_text, True, SCORE_COLOR)
+        name_y = y - r - name_surf.get_height() - si(6)
+        # 黑色阴影提高可读性
+        shadow = name_font.render(name_text, True, (0, 0, 0))
+        self.screen.blit(shadow, (x - name_surf.get_width() // 2 + si(1), name_y + si(1)))
+        self.screen.blit(name_surf, (x - name_surf.get_width() // 2, name_y))
+        # 合成提示消息
+        msg = TIERS[tier].get("message", "")
+        if not msg:
+            # 从 Messages.txt 查找
+            msg = game.merge_messages.get(tier, "")
+        if msg:
+            msg_fs = max(6, si(11))
+            msg_font = self._font(msg_fs)
+            msg_surf = msg_font.render(msg, True, TEXT_CYAN)
+            msg_shadow = msg_font.render(msg, True, (0, 0, 0))
+            msg_y = name_y - msg_surf.get_height() - si(3)
+            self.screen.blit(msg_shadow, (x - msg_surf.get_width() // 2 + si(1), msg_y + si(1)))
+            self.screen.blit(msg_surf, (x - msg_surf.get_width() // 2, msg_y))
+
     def _draw_demo_overlay(self, game, demo_bot):
         """Demo mode: highlight target ball and show aim crosshair."""
         if demo_bot is None or game.game_over:
@@ -543,6 +1184,28 @@ class Renderer:
         demo_label = demo_font.render("🔴 演示模式", True, (255, 180, 60))
         self.screen.blit(demo_label, (self.screen.get_width() - demo_label.get_width() - si(8), si(8)))
 
+    def _draw_sound_button(self, game):
+        """v2.2.0.0: 右上角声音开关按钮（始终显示）。"""
+        import game as game_module
+        w = self.screen.get_width()
+        btn_sz = si(36)
+        bx = w - btn_sz - si(10)
+        by = si(30)
+        # 圆形背景
+        bg = pygame.Surface((btn_sz, btn_sz), pygame.SRCALPHA)
+        bg_color = (60, 80, 100, 200) if game_module._sound_enabled else (80, 60, 60, 200)
+        pygame.draw.circle(bg, bg_color, (btn_sz // 2, btn_sz // 2), btn_sz // 2)
+        pygame.draw.circle(bg, (140, 140, 170, 220), (btn_sz // 2, btn_sz // 2),
+                           btn_sz // 2, width=max(1, si(2)))
+        self.screen.blit(bg, (bx, by))
+        # 声音开/关图标
+        icon_sz = int(btn_sz * 0.65)
+        icon_key = "声音开.png" if game_module._sound_enabled else "声音关.png"
+        icon = self._get_or_generate_icon(icon_key, icon_sz)
+        if icon:
+            self.screen.blit(icon,
+                             (bx + (btn_sz - icon_sz) // 2, by + (btn_sz - icon_sz) // 2))
+
     def _draw_ui(self, game):
         """Score, current item, version."""
         # ---- Top-left: Score ----
@@ -577,7 +1240,7 @@ class Renderer:
 
         # ---- Bottom: Version + Update ----
         vf = self._font(max(8, si(12)))
-        vt = vf.render(VERSION, True, (*TEXT_COLOR, 120))
+        vt = vf.render(VERSION, True, (*TEXT_CYAN, 120))
         self.screen.blit(vt, (si(_c.CONTAINER_LEFT) + si(4),
                               si(_c.CONTAINER_BOTTOM) + si(6)))
 
@@ -649,22 +1312,19 @@ class Renderer:
             self.screen.blit(txt, (left + (w - txt.get_width()) // 2,
                                    by + (bh - txt.get_height()) // 2))
 
-    def _draw_debug(self, game):
-        """调试模式：显示等级选择器 + 技术信息。"""
+    def _draw_tier_selector(self, game):
+        """等级选择器横条：点击锁定掉落等级。"""
         bar_y = si(BUTTON_BAR_H) + si(4)
         bar_h = si(24)
 
-        # 半透明背景
         bg = pygame.Surface((self.screen.get_width(), bar_h), pygame.SRCALPHA)
         bg.fill((0, 0, 0, 120))
         self.screen.blit(bg, (0, bar_y))
 
-        # 17 个等级按钮 (0-16)
         btn_w = si(28)
         gap = si(2)
         for t in range(len(TIERS)):
             left = si(4) + t * (btn_w + gap)
-            # 按钮背景
             color = TIERS[t]["color"]
             sel = (game.debug_tier == t)
             alpha = 220 if sel else 100
@@ -674,14 +1334,13 @@ class Renderer:
                 pygame.draw.rect(btn, (255, 255, 255, 255),
                                  btn.get_rect(), width=si(2))
             self.screen.blit(btn, (left, bar_y + si(1)))
-            # 编号
             fs = max(8, si(11))
             font = self._font(fs)
             txt = font.render(str(t), True, (255, 255, 255) if sel else (200, 200, 200))
             self.screen.blit(txt, (left + (btn_w - txt.get_width()) // 2,
                                    bar_y + (bar_h - txt.get_height()) // 2))
 
-        # "自动" 按钮（退出锁定）
+        # "自动" 按钮
         auto_x = si(4) + len(TIERS) * (btn_w + gap) + gap
         auto_w = si(40)
         auto_btn = pygame.Surface((auto_w, bar_h - si(2)), pygame.SRCALPHA)
@@ -695,52 +1354,49 @@ class Renderer:
         atxt = afont.render("自动", True, (255, 255, 255))
         self.screen.blit(atxt, (auto_x + (auto_w - atxt.get_width()) // 2,
                                  bar_y + (bar_h - atxt.get_height()) // 2))
+        return bar_y + bar_h  # 返回选择器底部 Y
 
-        # ---- 掉落概率编辑栏 ----
-        wt_y = bar_y + bar_h + si(3)
+    def _draw_weight_editor(self, game, y_start: int):
+        """掉落权重编辑栏。"""
+        wt_y = y_start + si(3)
         wt_h = si(22)
         wt_bg = pygame.Surface((self.screen.get_width(), wt_h), pygame.SRCALPHA)
         wt_bg.fill((0, 0, 0, 100))
         self.screen.blit(wt_bg, (0, wt_y))
 
-        # 标签
         wfs = max(8, si(11))
         wfont = self._font(wfs)
         lbl = wfont.render("权重:", True, (180, 180, 180))
         self.screen.blit(lbl, (si(4), wt_y + (wt_h - lbl.get_height()) // 2))
 
-        # 6 个掉落等级 + 权重值
-        weights = game.debug_weights if game.debug_weights is not None else [1] * 6
-        total_w = sum(weights)
+        max_d = get_max_drop()
+        weights = game.debug_weights if game.debug_weights is not None else [1] * (max_d + 1)
+        total_w = sum(weights) if sum(weights) > 0 else 1
         cell_x = si(52)
         cell_w = si(46)
 
-        for t in range(get_max_drop() + 1):
+        for t in range(max_d + 1):
             left = cell_x + t * (cell_w + si(4))
-            w = weights[t]
-            pct = int(w / total_w * 100) if total_w > 0 else 0
-            # 等级色块
+            w = weights[t] if t < len(weights) else 1
+            pct = int(w / total_w * 100)
             color = TIERS[t]["color"]
             swatch = pygame.Surface((si(14), wt_h - si(4)), pygame.SRCALPHA)
             swatch.fill((*color, 200))
             self.screen.blit(swatch, (left, wt_y + si(2)))
-            # 权重数字
             wtxt = wfont.render(f"T{t}:{pct}%", True, (255, 255, 255))
             self.screen.blit(wtxt, (left + si(16), wt_y + (wt_h - wtxt.get_height()) // 2))
             # +/- 按钮
             pm_w = si(12)
             pm_h = si(10)
-            # +
             pbtn = pygame.Surface((pm_w, pm_h), pygame.SRCALPHA)
             pbtn.fill((60, 160, 60, 200))
             self.screen.blit(pbtn, (left + cell_w - pm_w * 2 - si(2), wt_y + si(2)))
-            # -
             mbtn = pygame.Surface((pm_w, pm_h), pygame.SRCALPHA)
             mbtn.fill((200, 60, 60, 200))
             self.screen.blit(mbtn, (left + cell_w - pm_w, wt_y + si(2) + pm_h + si(1)))
 
         # 重置按钮
-        rst_x = cell_x + 6 * (cell_w + si(4)) + si(8)
+        rst_x = cell_x + (max_d + 1) * (cell_w + si(4)) + si(8)
         rst_w = si(36)
         rst_btn = pygame.Surface((rst_w, wt_h - si(4)), pygame.SRCALPHA)
         rst_btn.fill((100, 100, 120, 160))
@@ -748,9 +1404,11 @@ class Renderer:
         rst_txt = wfont.render("重置", True, TEXT_COLOR)
         self.screen.blit(rst_txt, (rst_x + (rst_w - rst_txt.get_width()) // 2,
                                     wt_y + (wt_h - rst_txt.get_height()) // 2))
+        return wt_y + wt_h  # 返回权重栏底部 Y
 
-        # ---- 技术信息 ----
-        info_y = wt_y + wt_h + si(4)
+    def _draw_tech_info(self, game, y_start: int):
+        """技术信息：FPS/球数/分数/缩放。"""
+        info_y = y_start + si(4)
         font = self._font(max(10, si(13)))
         lines = [
             f"FPS:{int(self.clock.get_fps())} 球:{len([i for i in game.items if i.alive])}",
@@ -762,6 +1420,12 @@ class Renderer:
             t = font.render(line, True, (120, 255, 120))
             self.screen.blit(t, (si(6), info_y))
             info_y += si(16)
+
+    def _draw_debug(self, game):
+        """调试模式（轻量）：等级选择器 + 权重编辑 + 技术信息。"""
+        bar_bottom = self._draw_tier_selector(game)
+        wt_bottom = self._draw_weight_editor(game, bar_bottom)
+        self._draw_tech_info(game, wt_bottom)
 
     def _draw_game_over(self, game):
         overlay = pygame.Surface(self.screen.get_size(), pygame.SRCALPHA)

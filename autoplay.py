@@ -181,7 +181,7 @@ def run_headless_game(
         game_mode: "full" (17-tier) or "lite" (11-tier)
     """
     random.seed(seed)
-    game = Game(mode=game_mode)
+    game = Game(mode_id=game_mode)
     bot = SmartBot(game) if bot_mode == "smart" else DumbBot(game)
     elapsed = 0.0
     drops = 0
