@@ -65,25 +65,22 @@
 
 ## 🎬 截图
 
-> 待补充:启动闪屏、游戏画面、模式选择界面、调试面板
+<p align="center">
+  <img src="docs/screenshots/splash.png" alt="启动闪屏" width="48%" />
+  <img src="docs/screenshots/mode-select.png" alt="模式选择界面" width="48%" />
+</p>
 
-建议在此处放入以下截图(可在 `assets/screenshots/` 目录准备后引用):
+<p align="center">
+  <img src="docs/screenshots/gameplay-lite.png" alt="轻量模式游玩" width="32%" />
+  <img src="docs/screenshots/gameplay-full.png" alt="完整模式 17 元素" width="32%" />
+  <img src="docs/screenshots/debug-panel.png" alt="实时调试面板" width="32%" />
+</p>
 
-```
-docs/screenshots/
-├── splash.png          # 启动闪屏 yk.png
-├── mode-select.png     # 模式选择界面
-├── gameplay-lite.png   # 大西瓜模式游玩
-├── gameplay-full.png   # 完整模式 17 元素
-├── debug-panel.png     # 实时参数调试面板
-└── victory.png         # 合成终极球庆祝特效
-```
+<p align="center">
+  <img src="docs/screenshots/victory.png" alt="合成终极球庆祝特效" width="60%" />
+</p>
 
-```markdown
-![Splash](docs/screenshots/splash.png)
-![Gameplay](docs/screenshots/gameplay-lite.png)
-![Debug Panel](docs/screenshots/debug-panel.png)
-```
+> 📸 所有截图存放于 [`docs/screenshots/`](docs/screenshots/),由开发者真实运行 v2.3.0.0 截图。
 
 ---
 
