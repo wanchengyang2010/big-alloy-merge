@@ -1,0 +1,50 @@
+name: ❓ 使用问题
+description: 询问游戏玩法、操作、设置相关问题
+title: "[Question] "
+labels: ["question"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      content: |
+        有问题先看看 [📖 用户手册](https://github.com/wanchengyang2010/big-alloy-merge/blob/main/USER_GUIDE.md) 哦!
+        大部分问题都能在那里找到答案。
+
+  - type: dropdown
+    id: topic
+    attributes:
+      label: 问题类型
+      options:
+        - 🎮 玩法 / 规则
+        - ⌨️ 操作 / 快捷键
+        - 🛠️ 调试模式 / 调试密码
+        - 💾 存档 / 高分
+        - ⚙️ 设置 / 自定义模式
+        - 🖼️ 球图片 / 自定义资源
+        - 📦 安装 / 卸载
+        - 🌐 其他
+    validations:
+      required: true
+
+  - type: textarea
+    id: question
+    attributes:
+      label: 你的问题
+      description: 详细描述你想了解什么
+      placeholder: |
+        例如:怎么修改 12 号球的图片?
+        或者:调试密码是多少?
+    validations:
+      required: true
+
+  - type: textarea
+    id: tried
+    attributes:
+      label: 你已经尝试过什么?
+      description: 读过哪些文档?试过哪些方法?
+
+  - type: input
+    id: version
+    attributes:
+      label: 游戏版本(可选)
+      placeholder: v2.3.0.0

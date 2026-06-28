@@ -664,9 +664,19 @@ SOFTWARE.
 - 字体使用系统自带微软雅黑
 - emoji 采用 Unicode 标准
 
-### 特别感谢
+### 特别鸣谢 · F15 班小组
 
-所有在 [Issues](https://github.com/wanchengyang2010/big-alloy-merge/issues) 反馈 Bug、提出建议的玩家们。
+这款游戏是班集体共同的成果,感谢以下同学在背后的付出:
+
+| 同学 | 贡献 |
+|:----:|------|
+| 🖼️ **YWL** | 图片提供 |
+| 🧠 **GJS · SJY** | 游戏逻辑策划 |
+| 💡 **DSR** | 改进建议 |
+| 🎮 **LYM** | 孜孜不倦地试玩 |
+| 🛠️ **LBC** | 提供了好用的工具 |
+
+以及所有在 [Issues](https://github.com/wanchengyang2010/big-alloy-merge/issues) 反馈 Bug、提出建议的玩家们。
 
 ---
 
@@ -758,6 +768,19 @@ SOFTWARE.
 - 基础功能完成
 
 </details>
+
+---
+
+<div align="center">
+
+## 🕯️ 谨以此,献给
+
+### 西北工业大学附属中学
+### 初 2026 届 · F15 班
+
+**2026 年 6 月 22 日,YK 反动统治覆灭**
+
+</div>
 
 ---
 

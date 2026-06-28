@@ -1,0 +1,94 @@
+name: 🐛 Bug 报告
+description: 报告游戏崩溃、报错、异常行为或画面/音效问题
+title: "[Bug] "
+labels: ["bug", "needs-triage"]
+assignees: []
+body:
+  - type: markdown
+    attributes:
+      content: |
+        感谢你帮助改进 **Big Alloy Merge**!🐛
+        请尽量详细描述问题,以下信息会帮助我们快速定位和修复。
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: 游戏模式
+      description: 问题出现在哪个模式?
+      options:
+        - 轻量模式 (lite)
+        - 完整模式 (full)
+        - 调试模式 (debug)
+        - 完整调试 (full_debug)
+        - 演示模式 (demo)
+        - Q 自我模式 (qself)
+        - 模式选择界面
+        - 启动闪屏
+        - 其他 / 不确定
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: 游戏版本
+      description: 查看方式:游戏标题栏 / 关于页 / exe 文件属性
+      placeholder: v2.3.0.0
+    validations:
+      required: true
+
+  - type: input
+    id: system
+    attributes:
+      label: 系统版本
+      description: 例如:Windows 11 23H2 / Windows 10 22H2
+      placeholder: Windows 11 23H2
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤
+      description: 一步步描述如何触发这个 bug
+      placeholder: |
+        1. 启动游戏
+        2. 进入完整模式(按 A)
+        3. 合成到 tier 10
+        4. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expect
+    attributes:
+      label: 期望行为
+      description: 正常情况下应该发生什么?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为
+      description: 实际发生了什么?有没有报错信息?
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 报错日志 / 截图
+      description: 粘贴终端报错信息(用 ``` 包裹代码块),或上传截图(GIF 更佳)
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: 严重程度
+      options:
+        - 🔴 致命(游戏崩溃 / 无法启动)
+        - 🟠 严重(主要功能不可用)
+        - 🟡 一般(有 workaround,但影响体验)
+        - 🟢 轻微(UI/文案小问题)
+    validations:
+      required: true
