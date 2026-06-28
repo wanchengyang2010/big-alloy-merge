@@ -1,0 +1,112 @@
+# ============================================
+# Python
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# ============================================
+# Virtual environments
+# ============================================
+venv/
+env/
+ENV/
+.venv/
+env.bak/
+venv.bak/
+
+# ============================================
+# IDE / Editor
+# ============================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+*.sublime-project
+*.sublime-workspace
+
+# ============================================
+# OS
+# ============================================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# ============================================
+# 测试 / 覆盖率
+# ============================================
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+.hypothesis/
+
+# ============================================
+# 类型检查 / Lint
+# ============================================
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+
+# ============================================
+# 日志
+# ============================================
+*.log
+logs/
+*.pid
+*.seed
+*.pid.lock
+
+# ============================================
+# 项目特定:用户数据 / 存档(敏感,不入库)
+# ============================================
+# 用户存档(已迁移到 %APPDATA%,但保留兼容)
+savegame.json
+savegame_*.json
+
+# 自定义模式配置
+q_custom.json
+
+# 高分记录
+highscore.txt
+
+# Modes 配置
+modes.json
+
+# 调试 / 临时文件
+*.tmp
+*.bak
+*.swp
+*.orig
